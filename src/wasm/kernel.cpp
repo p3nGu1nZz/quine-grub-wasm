@@ -166,10 +166,18 @@ void WasmKernel::bootDynamic(const std::string& glob,
     err = m3_LinkRawFunction(m_module, "env", "spawn", "v(ii)", hostSpawnImpl);
     if (err && err != m3Err_functionLookupFailed)
         throw std::runtime_error(std::string("wasm3 link spawn: ") + err);
-    // link weight logger; this will call the weightCb if one was provided
+    // Link the weight recorder; KERNEL_GLOB imports it as (i32,i32) while
+    // KERNEL_SEQ imports it as (f32,f32) — the host function works for both
+    // since wasm3 passes raw 32-bit values in either case.  Try (i32,i32)
+    // first, and if that fails with a signature mismatch, fall back to (f32,f32).
     err = m3_LinkRawFunction(m_module, "env", "record_weight", "v(ii)", hostRecordWeightImpl);
-    if (err && err != m3Err_functionLookupFailed)
-        throw std::runtime_error(std::string("wasm3 link record_weight: ") + err);
+    if (err && err != m3Err_functionLookupFailed) {
+        // Signature mismatch — KERNEL_SEQ uses (f32,f32).  The raw host
+        // function interprets both the same way (32-bit values on the stack).
+        err = m3_LinkRawFunction(m_module, "env", "record_weight", "v(ff)", hostRecordWeightImpl);
+        if (err && err != m3Err_functionLookupFailed)
+            throw std::runtime_error(std::string("wasm3 link record_weight: ") + err);
+    }
     // link kill_instance so kernels can request their own termination
     err = m3_LinkRawFunction(m_module, "env", "kill_instance", "v(i)", hostKillImpl);
     if (err && err != m3Err_functionLookupFailed)
@@ -186,19 +194,21 @@ void WasmKernel::runDynamic(const std::string& sourceGlob) {
     if (!isLoaded())
         throw std::runtime_error("Kernel Panic: Not loaded. Boot first.");
 
-    // Write source into WASM memory at offset 0
+    // Some kernels (e.g. KERNEL_SEQ) have no memory section — they compute
+    // pure functions and export results via host callbacks, ignoring ptr/len.
+    // For those, skip the memcpy and call run(0, 0).
     uint32_t memSize  = 0;
     uint8_t* wMem     = m3_GetMemory(m_runtime, &memSize, 0);
-    if (!wMem)
-        throw std::runtime_error("Kernel Panic: WASM memory unavailable.");
 
-    uint32_t srcLen = (uint32_t)sourceGlob.size();
-    if (srcLen > memSize)
-        throw std::runtime_error("Kernel Panic: Source larger than WASM memory.");
+    uint32_t srcLen = 0;
+    if (wMem) {
+        srcLen = (uint32_t)sourceGlob.size();
+        if (srcLen > memSize)
+            throw std::runtime_error("Kernel Panic: Source larger than WASM memory.");
+        memcpy(wMem, sourceGlob.data(), srcLen);
+    }
 
-    memcpy(wMem, sourceGlob.data(), srcLen);
-
-    // Call run(0, srcLen)
+    // Call run(ptr=0, len=srcLen)  [len==0 for memory-less kernels]
     M3Result err = m3_CallV(m_runFunc, (uint32_t)0, srcLen);
     if (err)
         throw std::runtime_error(std::string("wasm3 call 'run': ") + err);

@@ -54,73 +54,58 @@ void Trainer::observe(const TelemetryEntry& entry) {
 // helper that encapsulates the existing logic for a single observation; this
 // lets us easily re-use it when sampling from the replay buffer.
 void Trainer::trainOnEntry(const TelemetryEntry& entry) {
-    // Reward: generation count (higher = better kernel)
-    float reward = static_cast<float>(entry.generation);
-    if (reward > m_maxReward) m_maxReward = reward;
-    // Normalise to [0,1]; use smoothed max to avoid divide-by-zero
-    float normReward = reward / (m_maxReward + 1.0f);
+    // ── Target signal ─────────────────────────────────────────────────────────
+    // Primary reward: normalised generation count ∈ [0, 1].
+    float rawReward = static_cast<float>(entry.generation);
+    if (rawReward > m_maxReward) m_maxReward = rawReward;
+    float normReward = rawReward / (m_maxReward + 1.0f);
 
-    // Adaptive learning rate: decay as we accumulate observations
-    // Higher initial LR for fresh starts, lower as buffer fills
-    const float baseLr = kLearningRate;
+    // Quality adjustment via Loss::compute():
+    //   Loss returns a "badness" score ≤ 0 means good (no traps, no junk).
+    //   Decompose it: raw loss = -generation + penalties.
+    //   The penalty portion is: loss + generation.
+    //   Subtract a clamped fraction of penalties from the target so kernels
+    //   that trap or have degenerate code get a lower training target.
+    float qualityPenalty = Loss::compute(entry) + rawReward; // isolate penalties
+    float target = normReward - std::max(0.0f, std::min(0.2f, qualityPenalty / 50.0f));
+    target = std::max(0.0f, std::min(1.0f, target));
+
+    // ── Adaptive learning rate ────────────────────────────────────────────────
     float lrDecay = 1.0f / (1.0f + 0.001f * static_cast<float>(m_observations));
-    float lr = baseLr * std::max(0.1f, lrDecay);  // never drop below 10% of base
+    float lr = kLearningRate * std::max(0.1f, lrDecay);
 
     float lastPrediction = 0.0f;
 
-    // ── Helper: apply one SGD step with gradient clipping + weight decay ─────
-    auto applyUpdate = [&](std::vector<std::vector<float>>& acts) {
-        float prediction = acts.back().empty() ? 0.0f : acts.back()[0];
-        float diff = prediction - normReward;
+    // ── One forward + proper backward step ────────────────────────────────────
+    // applyBackward: runs forwardActivations, computes MSE gradient,
+    // then calls Policy::backward() which applies the full chain rule through
+    // all dense layers and the LSTM (single-step BPTT).
+    auto applyBackward = [&](const std::vector<float>& features) {
+        std::vector<std::vector<float>> acts;
+        m_policy.forwardActivations(features, acts);
 
-        // MSE loss
-        m_lastLoss = diff * diff;
-        // EMA smoothing (α=0.1 keeps history, 0.9 forgets slowly)
-        m_avgLoss = m_avgLoss * kEmaDecay + m_lastLoss * (1.0f - kEmaDecay);
+        float prediction = acts.back().empty() ? 0.0f : acts.back()[0];
         lastPrediction = prediction;
 
-        for (int l = 0; l < m_policy.layerCount(); ++l) {
-            if (m_policy.layerType(l) == Policy::LayerType::LSTM) continue;
-            const int inl  = m_policy.layerInSize(l);
-            const int outl = m_policy.layerOutSize(l);
-            const auto& input_act = acts[l];
-            auto w = m_policy.layerWeights(l);
-            auto b = m_policy.layerBiases(l);
+        // MSE loss and EMA tracking
+        float diff = prediction - target;
+        m_lastLoss = diff * diff;
+        m_avgLoss  = m_avgLoss * kEmaDecay + m_lastLoss * (1.0f - kEmaDecay);
 
-            for (int o = 0; o < outl; ++o) {
-                // Gradient clipping: |grad| <= kGradClip
-                float biasGrad = lr * diff;
-                biasGrad = std::max(-kGradClip, std::min(kGradClip, biasGrad));
-                b[o] -= biasGrad;
-
-                for (int i = 0; i < inl; ++i) {
-                    float grad = lr * diff * input_act[i];
-                    grad = std::max(-kGradClip, std::min(kGradClip, grad));
-                    w[o * inl + i] -= grad;
-                    // L2 weight decay (keeps weights from exploding)
-                    w[o * inl + i] *= (1.0f - kWeightDecay);
-                }
-            }
-            m_policy.setLayerWeights(l, w);
-            m_policy.setLayerBiases(l, b);
-        }
+        // dL/dy = 2*(prediction - target)  →  full backprop with chain rule
+        m_policy.backward(acts, 2.0f * diff, lr, kGradClip, kWeightDecay);
     };
 
     if (m_lastUsedSequence) {
         auto seq = Feature::extractSequence(entry);
         m_policy.resetState();
-        for (auto op : seq) {
+        for (uint8_t op : seq) {
             std::vector<float> features(kFeatSize, 0.0f);
-            if (op < (uint8_t)kFeatSize) features[op] = 1.0f;
-            std::vector<std::vector<float>> acts;
-            m_policy.forwardActivations(features, acts);
-            applyUpdate(acts);
+            features[op] = 1.0f;  // one-hot opcode input (op < kFeatSize always)
+            applyBackward(features);
         }
     } else {
-        auto features = Feature::extract(entry);
-        std::vector<std::vector<float>> acts;
-        m_policy.forwardActivations(features, acts);
-        applyUpdate(acts);
+        applyBackward(Feature::extract(entry));
     }
 
     pushHistory(m_lossHistory,  m_avgLoss);
@@ -130,6 +115,7 @@ void Trainer::trainOnEntry(const TelemetryEntry& entry) {
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 // Save format per layer:  type in out\n  [weights...]\n  [biases...]\n
+// For LSTM layers, two additional lines follow:  [lstmH...]\n  [lstmC...]\n
 // type: 0=DENSE, 1=LSTM.  LSTM weight count = 4*(in+out)*out; bias = 4*out.
 
 bool Trainer::save(const std::string& path) const {
@@ -147,6 +133,13 @@ bool Trainer::save(const std::string& path) const {
         out << "\n";
         for (float v : b) out << v << " ";
         out << "\n";
+        // Also persist LSTM hidden/cell state so checkpoints are fully resumable
+        if (m_policy.layerType(l) == Policy::LayerType::LSTM) {
+            for (float v : m_policy.layerLstmH(l)) out << v << " ";
+            out << "\n";
+            for (float v : m_policy.layerLstmC(l)) out << v << " ";
+            out << "\n";
+        }
     }
     return out.good();
 }
@@ -188,6 +181,14 @@ bool Trainer::load(const std::string& path) {
         for (float& v : b) if (!(in >> v)) return false;
         m_policy.setLayerWeights(l, w);
         m_policy.setLayerBiases(l, b);
+        // Restore LSTM state if present
+        if (type == (int)Policy::LayerType::LSTM) {
+            std::vector<float> h(outs), c(outs);
+            for (float& v : h) if (!(in >> v)) return false;
+            for (float& v : c) if (!(in >> v)) return false;
+            m_policy.setLayerLstmH(l, h);
+            m_policy.setLayerLstmC(l, c);
+        }
     }
     return true;
 }
