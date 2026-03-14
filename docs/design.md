@@ -1,4 +1,4 @@
-# Design Document — WASM Quine Bootloader
+# Design Document — quine-grub-wasm
 
 ## 1. Goals
 

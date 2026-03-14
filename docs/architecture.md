@@ -1,4 +1,4 @@
-# Architecture Document — WASM Quine Bootloader
+# Architecture Document — quine-grub-wasm
 
 ## Module Map
 
@@ -53,8 +53,7 @@ main.cpp
 | Symbol | Description |
 |---|---|
 | `KERNEL_GLOB` | Base64-encoded minimal WASM binary (the initial quine kernel) |
-| `KERNEL_SEQ`  | Base64-encoded tiny recurrent kernel used to prototype the in-kernel autoregressive model (updates hidden state and reports weights to host) |
-| `KERNEL_SEQ`  | Base64-encoded tiny recurrent kernel used to prototype the in-kernel autoregressive model (updates hidden state and reports weights to host) |
+| `KERNEL_SEQ`  | Base64-encoded tiny recurrent kernel that updates an internal hidden state and reports float weights to the host via `env.record_weight` — the prototype for the in-kernel autoregressive predictor |
 | `DEFAULT_BOOT_CONFIG` | Default `BootConfig` values |
 
 **Dependencies:** `types.h`
@@ -105,7 +104,7 @@ Transition history is not recorded here; that is the responsibility of `AppLogge
 
 ---
 
-### `src/logger.h` / `src/logger.cpp`
+### `src/logger.h` / `src/log.cpp`
 **Role:** Append-only log ring-buffer and immutable history ledger.
 
 | Member | Description |
@@ -167,9 +166,11 @@ Exposes read-only accessors for everything the `Gui` needs to render.
 | Member | Description |
 |---|---|
 | `bootDynamic(b64, logCb, growCb)` | Decode kernel, instantiate wasm3 runtime, link host imports (supports optional `spawnCb`, `weightCb` and `killCb` callbacks).  `weightCb` is used by the sequence-model kernel to send learned weights back to the host. |
-| `runDynamic(b64)` | Write base64 into WASM memory, call exported `run(ptr, len)` |
+| `runDynamic(b64)` | Write base64 into WASM memory at offset 0, then call the exported `run(ptr, len)`.  Kernels without a memory section (e.g. KERNEL_SEQ) skip the memcpy and receive `run(0, 0)` directly. |
 | `terminate()` | Free wasm3 runtime and environment |
 | `isLoaded()` | True when a module is ready to execute |
+
+`record_weight` is linked with signature `(i32, i32)` for KERNEL_GLOB and `(f32, f32)` for KERNEL_SEQ; `bootDynamic` tries both signatures automatically to avoid link errors.
 
 Uses `m3ApiRawFunction` / `m3ApiGetArg` / `m3_LinkRawFunction` from wasm3.
 `KernelUserData` (owned as `m_userData`) is passed as wasm3 user-data and
@@ -209,7 +210,85 @@ Uses `std::mt19937` seeded from `std::random_device` for all random choices.
 
 ---
 
-### `src/gui/window.h` / `src/gui/window.cpp`
+### `src/nn/policy.h` / `src/nn/policy.cpp`
+**Role:** Feed-forward neural network policy with Dense and LSTM layers.
+
+| Member | Description |
+|---|---|
+| `addDense(in, out)` | Append a fully-connected layer with ReLU activation.  Weights initialised with **Xavier-uniform** (`±√(6/(fan_in+fan_out))`) to break symmetry and avoid dead ReLUs from zero initialisation. |
+| `addLSTM(in, hidden)` | Append an LSTM layer (4 gate weight matrices + biases, also Xavier-uniform init).  Hidden/cell state is updated in-place across calls and zeroed by `resetState()`. |
+| `forward(input)` | Single forward pass; returns final layer output. |
+| `forwardActivations(input, acts)` | Forward pass that records every layer's post-activation output in `acts`.  `acts[0]` = padded input; `acts[l+1]` = output of layer `l`.  Input is silently padded/truncated to the expected size so callers cannot cause out-of-bounds reads. |
+| `backward(acts, outputGrad, lr, gradClip, weightDecay)` | Full chain-rule backpropagation.  Dense layers apply the ReLU derivative mask (`∂ReLU/∂z = 1 if output > 0 else 0`) when propagating deltas.  The LSTM performs single-step BPTT: gate gradients (`df`, `di`, `dg`, `do`) are derived from `dh` and the saved gate cache, then all four gate weight matrices are updated.  Every weight step is clipped to `±gradClip` and followed by L2 weight decay. |
+| `resetState()` | Zero LSTM hidden/cell state — call before processing a new sequence. |
+| `forwardSequence(seq)` | Reset state, then apply `forward()` for each step in `seq`; return the final output. |
+| `layerLstmH/C(i)` | Read LSTM hidden/cell state for layer `i` (checkpoint persistence). |
+| `setLayerLstmH/C(i, v)` | Restore LSTM state from a checkpoint. |
+
+**LSTMCache** (nested in `Layer`) stores the forward-pass gate values needed for BPTT: `xh` (concatenated input + hidden), `f/i_gate/g/o` (post-activation values), and `c_prev` (cell state before step).
+
+**Dependencies:** `<vector>`, `<cmath>` — no project headers.
+
+---
+
+### `src/nn/train.h` / `src/nn/train.cpp`
+**Role:** Online SGD trainer that wraps the policy network.
+
+| Member | Description |
+|---|---|
+| `observe(entry)` | Extract features, run `forwardActivations`, compute training target (normalised reward − quality penalty from `Loss::compute()`), call `policy.backward()`, update EMA loss stats, optionally sample from the replay buffer for an extra update. |
+| `save(path)` | Persist weights, biases, LSTM state, and training stats to a plain-text file. |
+| `load(path)` | Restore from a checkpoint written by `save()`. |
+| `reset()` | Clear observations, EMA loss, and replay buffer without touching weights. |
+
+Hyper-parameters (constants in `train.h`): `kLearningRate = 0.004`, `kEmaDecay = 0.90`, `kGradClip = 0.5`, `kWeightDecay = 2e-5`.
+
+**Dependencies:** `nn/policy.h`, `nn/advisor.h`, `nn/feature.h`, `nn/loss.h`
+
+---
+
+### `src/nn/feature.h` / `src/nn/feature.cpp`
+**Role:** Extract a fixed-length feature vector from a `TelemetryEntry`.
+
+| Slot range | Content |
+|---|---|
+| 0–255 | Normalised opcode histogram (one bucket per WASM opcode) |
+| 256–511 | Bigram counts (pairs of consecutive opcodes) |
+| 512–523 | Structural metadata (trap flag, generation, drop ratio, sequence length, …) |
+| 640–1023 | Positional opcode sequence (first 384 opcodes, zero-padded) |
+
+Total: `kFeatSize = 1024`.
+
+**Dependencies:** `nn/advisor.h`, `wasm/parser.h`, `base64.h`
+
+---
+
+### `src/nn/loss.h` / `src/nn/loss.cpp`
+**Role:** Scalar loss function for the trainer.
+
+`Loss::compute(entry)` returns a **badness score** (lower is better; negative means the kernel is doing well).  Components:
+
+| Signal | Effect |
+|---|---|
+| `-generation` | Primary reward: more generations = lower loss |
+| Trap penalty | +8.0 when `trapCode` is non-empty |
+| Drop-ratio penalty | Proportional penalty when >40 % of instructions are `drop` (0x1A) |
+| Diversity penalty | Proportional penalty when unique-opcode count is below 64 |
+| Short-sequence penalty | +0.5 per instruction below 8 |
+| Long-sequence reward | −up to 2.0 for sequences longer than 32 instructions |
+
+**Dependencies:** `nn/advisor.h`, `wasm/parser.h`, `base64.h`
+
+---
+
+### `src/nn/advisor.h` / `src/nn/advisor.cpp`
+**Role:** Telemetry store and heuristic scoring oracle.
+
+`Advisor` scans a telemetry directory tree and loads `TelemetryEntry` records from exported report files.  `score(opcodeSequence)` returns a value in [0, 1] based on the average generation of loaded entries and the Jaccard-style similarity of the query sequence to known high-fitness sequences.
+
+**Dependencies:** `types.h`, `wasm/parser.h`, `base64.h`
+
+---
 **Role:** Dear ImGui backend lifecycle and panel orchestration.
 
 `Gui` creates the ImGui context in `init()`, renders all panels in
