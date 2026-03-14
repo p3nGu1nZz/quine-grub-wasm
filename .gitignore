@@ -1,0 +1,57 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Temp files
+*.tmp
+.tmp
+tmp
+test_seq/
+test_run/
+
+# Node / Web app
+node_modules
+web/node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# C++ build artifacts
+build/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# External dependencies (downloaded by scripts/setup.sh – not committed)
+/external/*
+
+# Exported telemetry files
+quine_telemetry_*.txt
+
+# CodeQL
+_codeql_detected_source_root

@@ -177,3 +177,14 @@ target_link_libraries(test_training_phase PRIVATE
     Catch2::Catch2WithMain
 )
 add_test(NAME training_phase_test COMMAND test_training_phase)
+
+# AppLogger in-memory tests
+add_executable(test_log test_log.cpp)
+target_include_directories(test_log PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_log PRIVATE
+    core
+    Catch2::Catch2WithMain
+)
+add_test(NAME log_test COMMAND test_log)
