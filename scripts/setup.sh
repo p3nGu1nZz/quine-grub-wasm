@@ -127,7 +127,19 @@ build_sdl3_linux() {
         -DSDL_AUDIO=OFF \
         -DCMAKE_INSTALL_PREFIX="${SDL3_LINUX}" \
         -Wno-dev --log-level=WARNING
-    cmake --build "${bld}" --parallel "$(nproc)"
+    info "Compiling SDL3 sources (this may take a few minutes)..."
+    stdbuf -oL cmake --build "${bld}" --parallel "$(nproc)" 2>&1 | \
+        while IFS= read -r line; do
+            # extract filename from compiler command lines for progress feedback
+            if [[ "$line" =~ Building\ CXX|Building\ C ]] ; then
+                # cmake --verbose style: "[ xx%] Building CXX object ..."
+                echo -e "  ${GREEN}${line}${NC}"
+            elif [[ "$line" =~ \.c\  ]] || [[ "$line" =~ \.cpp\  ]]; then
+                # raw compiler invocation - extract the source filename
+                src=$(echo "$line" | grep -oE '[^ ]+\.(c|cpp)' | tail -1)
+                [[ -n "$src" ]] && echo -e "  compiling $(basename "$src")"
+            fi
+        done
     cmake --install "${bld}"
     info "SDL3 (Linux) installed at ${SDL3_LINUX}"
 }
@@ -188,7 +200,13 @@ if [[ "$SETUP_WINDOWS" == "true" ]]; then
             -DSDL_AUDIO=OFF \
             -DCMAKE_INSTALL_PREFIX="${SDL3_WIN}" \
             -Wno-dev --log-level=WARNING
-        cmake --build "${bld_win}" --parallel "$(nproc)"
+        info "Compiling SDL3 (Windows) sources..."
+        stdbuf -oL cmake --build "${bld_win}" --parallel "$(nproc)" 2>&1 | \
+            while IFS= read -r line; do
+                if [[ "$line" =~ Building\ CXX|Building\ C ]]; then
+                    echo -e "  ${GREEN}${line}${NC}"
+                fi
+            done
         cmake --install "${bld_win}"
         info "SDL3 (Windows) installed at ${SDL3_WIN}"
     fi

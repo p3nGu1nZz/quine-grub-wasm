@@ -1,0 +1,36 @@
+# CMake generated Testfile for 
+# Source directory: /root/quine-grub-wasm/test
+# Build directory: /root/quine-grub-wasm/build/linux-debug/test
+# 
+# This file includes the relevant testing commands required for 
+# testing this directory and lists subdirectories to be tested as well.
+add_test([=[state_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_state")
+set_tests_properties([=[state_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;16;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[base64_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_base64")
+set_tests_properties([=[base64_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;27;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[wasm_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_wasm")
+set_tests_properties([=[wasm_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;38;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[util_dpi_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_util_dpi")
+set_tests_properties([=[util_dpi_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;58;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[cli_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_cli")
+set_tests_properties([=[cli_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;69;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[export_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_export")
+set_tests_properties([=[export_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;80;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[app_logic_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_app_logic")
+set_tests_properties([=[app_logic_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;91;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[cli_behavior_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_cli_behavior")
+set_tests_properties([=[cli_behavior_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;102;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[evolution_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_evolution")
+set_tests_properties([=[evolution_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;113;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[advisor_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_advisor")
+set_tests_properties([=[advisor_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;124;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[feature_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_feature")
+set_tests_properties([=[feature_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;135;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[policy_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_policy")
+set_tests_properties([=[policy_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;146;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[loss_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_loss")
+set_tests_properties([=[loss_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;157;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[train_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_train")
+set_tests_properties([=[train_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;168;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")
+add_test([=[training_phase_test]=] "/root/quine-grub-wasm/build/linux-debug/bin/test_training_phase")
+set_tests_properties([=[training_phase_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/root/quine-grub-wasm/test/CMakeLists.txt;179;add_test;/root/quine-grub-wasm/test/CMakeLists.txt;0;")

@@ -5,6 +5,7 @@
 #include "wasm/parser.h"
 
 #include <cstdio>
+#include <cmath>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl3.h>
 #include <backends/imgui_impl_sdlrenderer3.h>
@@ -30,10 +31,26 @@ void Gui::renderTrainingScene(App& app, int winW, int winH) {
     if (m_monoFont) ImGui::PushFont(m_monoFont);
 
     // ── Header ───────────────────────────────────────────────────────────────
+    float t = (float)ImGui::GetTime();
+    float pulse = 0.7f + 0.3f * sinf(t * 2.0f);
+
+    ImDrawList* hdl = ImGui::GetWindowDrawList();
+    ImVec2 headerPos = ImGui::GetCursorScreenPos();
+    float scanX = fmodf(t * 180.0f, (float)winW);
+    hdl->AddLine({scanX, headerPos.y}, {scanX, headerPos.y + 2.0f},
+                 IM_COL32(30, 210, 235, 80), 1.5f);
+
     ImGui::Separator();
-    ImGui::TextColored({ 0.11f, 0.83f, 0.93f, 1.0f }, "QUINEOS v2.0.4");
-    ImGui::SameLine(0, 30);
-    ImGui::TextColored({ 0.78f, 0.50f, 0.98f, 1.0f }, "NEURAL NETWORK RL TRAINING DASHBOARD");
+    ImGui::TextColored({ 0.11f * pulse + 0.05f, 0.83f * pulse, 0.93f * pulse, 1.0f },
+                       "quine-grub-wasm v2.4");
+    ImGui::SameLine(0, 20);
+    ImGui::TextColored({ 0.78f, 0.50f, 0.98f, 1.0f },
+                       "NEURAL NETWORK RL TRAINING DASHBOARD");
+    ImGui::SameLine(0, 20);
+    // animated tick counter
+    int tickSymbol = (int)(t * 4.0f) % 4;
+    const char* spinners[] = { "|", "/", "-", "\\" };
+    ImGui::TextColored({ 0.60f, 0.60f, 0.60f, 0.8f }, "%s", spinners[tickSymbol]);
     ImGui::Separator();
 
     // ── Central panel ────────────────────────────────────────────────────────
@@ -41,7 +58,9 @@ void Gui::renderTrainingScene(App& app, int winW, int winH) {
     float panelX = ((float)winW - panelW) * 0.5f;
     ImGui::SetCursorPosX(panelX);
 
-    ImGui::BeginChild("##TrainPanel", { panelW, (float)winH - 100.0f * m_uiScale }, true);
+    ImGui::BeginChild("##TrainPanel",
+        { panelW, (float)winH - (40.0f + 30.0f) * m_uiScale }, true,
+        ImGuiWindowFlags_NoScrollbar);
 
     // Phase indicator
     const char* phaseStr = "LOADING TELEMETRY";
@@ -102,9 +121,21 @@ void Gui::renderTrainingScene(App& app, int winW, int winH) {
     char overlay[64];
     std::snprintf(overlay, sizeof(overlay), "%.0f%%  (%d obs)",
                   prog * 100.0f, app.trainer().observations());
-    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, { 0.11f, 0.83f, 0.93f, 0.85f });
+    float glowA = 0.75f + 0.25f * sinf((float)ImGui::GetTime() * 3.0f);
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                          { 0.11f, 0.83f * glowA, 0.93f * glowA, 0.9f });
     ImGui::ProgressBar(prog, { -1.0f, 22.0f * m_uiScale }, overlay);
     ImGui::PopStyleColor();
+    // animated scan line over bar
+    {
+        ImVec2 barMin = ImGui::GetItemRectMin();
+        ImVec2 barMax = ImGui::GetItemRectMax();
+        float barW = barMax.x - barMin.x;
+        float scanPos = barMin.x + fmodf((float)ImGui::GetTime() * 120.0f, barW);
+        ImGui::GetWindowDrawList()->AddLine(
+            {scanPos, barMin.y}, {scanPos, barMax.y},
+            IM_COL32(255, 255, 255, 60), 2.0f);
+    }
 
     // ── Model-saving progress (visible when we are counting down to a
     // checkpoint write).  We deliberately keep the training scene active
@@ -251,7 +282,13 @@ void Gui::renderTrainingScene(App& app, int winW, int winH) {
     // ── Status bar ────────────────────────────────────────────────────────────
     ImGui::SetCursorPosY((float)winH - 30.0f * m_uiScale);
     ImGui::Separator();
-    ImGui::TextDisabled("WASM-QUINE-BOOTLOADER_SYS v2.4 // STARTUP TRAINING");
+    float t2 = (float)ImGui::GetTime();
+    int blinkOn = (int)(t2 * 2.0f) % 2;
+    if (blinkOn)
+        ImGui::TextColored({ 0.30f, 0.85f, 0.40f, 0.7f },
+                           "quine-grub-wasm_sys v2.4  ///  TRAINING ACTIVE");
+    else
+        ImGui::TextDisabled("quine-grub-wasm_sys v2.4  ///  TRAINING ACTIVE");
 
     if (m_monoFont) ImGui::PopFont();
     ImGui::End();
@@ -261,7 +298,7 @@ void Gui::renderTrainingScene(App& app, int winW, int winH) {
 
 void Gui::renderTopBar(App& app, int winW) {
     ImGui::Separator();
-    ImGui::Text("QUINEOS v2.0.4");
+    ImGui::TextColored({ 0.11f, 0.83f, 0.93f, 1.0f }, "quine-grub-wasm v2.4");
     ImGui::SameLine(0, 30);
     ImGui::SameLine(0, 20);
     ImGui::Text("GEN: %04d", app.generation());
@@ -339,7 +376,8 @@ void Gui::renderLogPanel(const App& app, float w, float h) {
         ImGui::SetScrollHereY(1.0f);
         m_scrollLogs = false;
     }
-    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 5)
+    constexpr float kScrollTolerance = 5.0f;
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - kScrollTolerance)
         m_scrollLogs = true;
     ImGui::EndChild();
     ImGui::EndChild();
@@ -499,6 +537,7 @@ void Gui::renderWeightHeatmaps(const App& app, int winW) {
 
     // Rebuild cache if the generation changed or the network layout differs
     if (app.generation() != m_lastHeatmapGen ||
+        app.trainer().observations() != m_lastHeatmapObs ||
         (int)m_heatmapCache.size() != layers) {
         // free existing textures first
         for (auto &c : m_heatmapCache) {
@@ -507,6 +546,7 @@ void Gui::renderWeightHeatmaps(const App& app, int winW) {
         m_heatmapCache.clear();
         m_heatmapCache.resize(layers);
         m_lastHeatmapGen = app.generation();
+        m_lastHeatmapObs = app.trainer().observations();
 
         // create a pixel buffer and texture for each layer
         for (int l = 0; l < layers; ++l) {
@@ -518,8 +558,6 @@ void Gui::renderWeightHeatmaps(const App& app, int winW) {
             // use SDL to mapRGBA so we don't make assumptions about byte order.
         // SDL3 switched to PixelFormatDetails; these are cached internally,
         // so no allocation or free is necessary.
-        const SDL_PixelFormatDetails* fmt =
-            SDL_GetPixelFormatDetails(SDL_PIXELFORMAT_RGBA32);
         for (int i = 0; i < out; ++i) {
             for (int j = 0; j < in; ++j) {
                 float val = pol.layerWeights(l)[i * in + j];
@@ -530,7 +568,9 @@ void Gui::renderWeightHeatmaps(const App& app, int winW) {
                 } else {
                     b = static_cast<uint8_t>(-tn * 255);
                 }
-                pixels[i * in + j] = SDL_MapRGBA(fmt, nullptr, r, g, b, a);
+                // direct RGBA32 pixel encoding (avoids SDL palette API quirks)
+                pixels[i * in + j] = ((uint32_t)r << 24) | ((uint32_t)g << 16)
+                                   | ((uint32_t)b << 8)  | (uint32_t)a;
             }
         }
             SDL_Texture* tex = SDL_CreateTexture(
@@ -579,12 +619,15 @@ void Gui::renderWeightHeatmaps(const App& app, int winW) {
         float drawW = usableW * fraction;
         if (drawW < 4.0f) drawW = 4.0f;
         float drawH = panelH;
+        ImGui::BeginGroup();
         if (m_heatmapCache[l].tex) {
             ImGui::Image((ImTextureID)m_heatmapCache[l].tex,
-                         ImVec2(drawW, drawH));
+                         ImVec2(drawW, drawH - 14.0f));
         } else {
-            ImGui::Dummy(ImVec2(drawW, drawH));
+            ImGui::Dummy(ImVec2(drawW, drawH - 14.0f));
         }
+        ImGui::TextDisabled("L%d", l);
+        ImGui::EndGroup();
         ImGui::SameLine(0, pad);
     }
     ImGui::EndChild();
@@ -592,7 +635,7 @@ void Gui::renderWeightHeatmaps(const App& app, int winW) {
 
 void Gui::renderStatusBar(const App& app) {
     ImGui::Separator();
-    ImGui::TextDisabled("WASM-QUINE-BOOTLOADER_SYS v2.4 // STATUS: %s",
+    ImGui::TextDisabled("quine-grub-wasm_sys v2.4 // STATUS: %s",
                         app.isPaused() ? "PAUSED" : "RUNNING");
     if (app.instanceCount() > 0) {
         ImGui::SameLine(0,20);

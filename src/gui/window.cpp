@@ -147,25 +147,34 @@ void Gui::renderFrame(App& app) {
         float instrW  = 240.0f * m_uiScale;
         float kernelW = (float)winW - logW - instrW;
 
-        renderLogPanel(app, logW, panelH);
-        ImGui::SameLine();
-        renderInstrPanel(app, instrW, panelH);
-        ImGui::SameLine();
-        renderKernelPanel(app, kernelW, panelH);
+        // ── Main three panels (take up full window width) ─────────────────────
+        float adjPanelH = panelH;
+        // reserve space below for optional advisor / instances rows
+        float detailH = 0.0f;
+        if (m_showAdvisor)        detailH += 110.0f * m_uiScale;
+        if (app.instanceCount() > 0) detailH += 80.0f * m_uiScale;
+        adjPanelH -= detailH;
+        if (adjPanelH < 120.0f) adjPanelH = 120.0f;
 
+        renderLogPanel(app, logW, adjPanelH);
+        ImGui::SameLine();
+        renderInstrPanel(app, instrW, adjPanelH);
+        ImGui::SameLine();
+        renderKernelPanel(app, kernelW, adjPanelH);
+
+        // ── Optional detail panels below the main row ─────────────────────────
         if (m_showAdvisor) {
-            ImGui::SameLine();
-            renderAdvisorPanel(app, 300.0f * m_uiScale, panelH);
+            float avail = ImGui::GetContentRegionAvail().x;
+            renderAdvisorPanel(app, avail, 110.0f * m_uiScale);
         }
 
         if (app.instanceCount() > 0) {
-            ImGui::SameLine();
-            renderInstancesPanel(app, 260.0f * m_uiScale, panelH);
+            float avail = ImGui::GetContentRegionAvail().x;
+            renderInstancesPanel(app, avail, 80.0f * m_uiScale);
         }
 
-        // weight heatmaps per layer appear just above the memory panel
+        // ── Weight heatmaps + memory heatmap + status bar ─────────────────────
         renderWeightHeatmaps(app, winW);
-
         m_heatmap.renderPanel(app, winW);
         renderStatusBar(app);
 

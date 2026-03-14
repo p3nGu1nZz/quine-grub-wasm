@@ -23,6 +23,7 @@ public:
     int   observations() const { return m_observations; }
     float avgLoss()      const { return m_avgLoss; }
     float lastLoss()     const { return m_lastLoss; }
+    float maxReward()    const { return m_maxReward; }
 
     // reset statistics and replay buffer; does not alter network weights.
     // used when kicking off a new training phase so old loss averages and
@@ -50,6 +51,12 @@ private:
     // perform a weight-update for a single telemetry entry; factored out so
     // we can call it for replay-buffer samples as well.
     void trainOnEntry(const TelemetryEntry& entry);
+
+    // ── Hyper-parameters ─────────────────────────────────────────────────────
+    static constexpr float kLearningRate = 0.004f;   // base SGD learning rate
+    static constexpr float kEmaDecay     = 0.90f;    // EMA decay for avgLoss
+    static constexpr float kGradClip     = 0.5f;     // max absolute gradient
+    static constexpr float kWeightDecay  = 2e-5f;    // L2 regularisation
 
     // true if last observe() call processed a non-empty opcode sequence
     bool m_lastUsedSequence = false;

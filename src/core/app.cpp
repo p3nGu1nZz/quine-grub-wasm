@@ -20,6 +20,7 @@
 // Shared by both the constructor (to compute m_trainingTotal) and tickTraining.
 static constexpr int kTrainMinAnimSteps = 30;
 static constexpr int kTrainEpochs       = 5;
+static constexpr int kSaveWaitSteps     = 3;
 #include <atomic>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -215,7 +216,7 @@ void App::prepareTrainingSteps() {
 }
 
 size_t App::kernelBytes() const {
-    return base64_decode(m_currentKernel).size();
+    return m_currentKernelBytes.size();
 }
 
 // ─── FSM helpers ─────────────────────────────────────────────────────────────
@@ -299,7 +300,7 @@ float App::saveProgress() const {
     if (m_modelSaved) return 1.0f;
     // mirror the countdown logic in tickTraining(); the hard-coded saveWait
     // value must stay in sync.
-    const int saveWait = 3; // number of update calls to wait
+    constexpr int saveWait = kSaveWaitSteps; // number of update calls to wait
     if (!m_savingModel) return 0.0f;
     // m_savePhase is incremented *after* first entering the save state, so
     // progress ranges from 1..saveWait; normalise to [0,1].
@@ -320,7 +321,7 @@ void App::tickTraining() {
                 m_savingModel = true;
                 m_savePhase = 0;
             }
-            const int saveWait = 3; // number of update calls to wait
+            constexpr int saveWait = kSaveWaitSteps; // number of update calls to wait
             if (m_savePhase < saveWait) {
                 m_savePhase++;
             } else {
@@ -827,7 +828,7 @@ void App::doReboot(bool success) {
     if (success && m_genStartTime != 0) {
         // compute duration for previous generation
         uint64_t nowTicks = now();
-        m_lastGenDurationMs = (nowTicks - m_genStartTime) / 1000.0; // ticks are us?
+        m_lastGenDurationMs = static_cast<double>(nowTicks - m_genStartTime); // SDL_GetTicks() returns ms
         if (m_opts.profile) {
             m_logger.log("PROFILE: gen " + std::to_string(m_generation) +
                           " took " + std::to_string(m_lastGenDurationMs) + " ms", "info");

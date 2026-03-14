@@ -78,6 +78,7 @@ private:
     };
     std::vector<LayerTexture> m_heatmapCache;
     int m_lastHeatmapGen = -1;
+    int m_lastHeatmapObs = -1;
 
     // Per-frame scroll / auto-scroll state
     bool   m_scrollLogs   = true;

@@ -1,9 +1,14 @@
 #pragma once
 
-// Compute a loss value from telemetry information.
-// Currently the loss is simply the negative of the generation count (i.e.
-// reward = generations, loss = -reward).  More complex heuristics may be
-// added later.
+// Loss function for the quine evolution trainer.
+// Returns a scalar "badness" score: lower is better, negative means good.
+//
+// Components:
+//   - Primary: negative generation count (more generations = lower loss)
+//   - Trap penalty:  +8 when the kernel triggered a trap
+//   - Drop ratio penalty: penalises sequences with >40% DROP opcodes
+//   - Diversity penalty: penalises low unique-opcode count
+//   - Length penalties/rewards: discourages degenerate short sequences
 
 struct TelemetryEntry;
 

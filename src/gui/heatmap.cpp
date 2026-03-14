@@ -64,14 +64,15 @@ void GuiHeatmap::draw(const App& app, ImDrawList* dl, ImVec2 pos, ImVec2 size) {
         dl->AddRectFilled({ x, y }, { x + BLOCK, y + BLOCK }, baseCol);
 
         if (heat > 0.01f) {
-            float  sz  = BLOCK * (1.0f + heat * 0.6f);
-            float  off = (sz - BLOCK) / 2.0f;
-            ImVec4 c   = heat > 0.5f
-                ? ImVec4(1, 1, 1, heat)
-                : ImVec4(activeC.x, activeC.y, activeC.z, heat);
+            float sz  = BLOCK * (1.0f + heat * 0.5f);
+            float off = (sz - BLOCK) * 0.5f;
+            // hot = white/yellow, cool = cyan
+            float hr = heat > 0.7f ? 1.0f : activeC.x + heat * (1.0f - activeC.x);
+            float hg = heat > 0.7f ? 0.9f * heat : activeC.y;
+            float hb = heat > 0.7f ? 0.2f * (1.0f - heat) : activeC.z * (1.0f - heat * 0.5f);
             dl->AddRectFilled(
                 { x - off, y - off }, { x - off + sz, y - off + sz },
-                IM_COL32((int)(c.x*255),(int)(c.y*255),(int)(c.z*255),(int)(c.w*255)));
+                IM_COL32((int)(hr*255),(int)(hg*255),(int)(hb*255),(int)(heat*255)));
         }
 
         if (app.isMemoryGrowing() && (hmRandInt(100) > 98))

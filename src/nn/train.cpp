@@ -54,50 +54,29 @@ void Trainer::observe(const TelemetryEntry& entry) {
 // helper that encapsulates the existing logic for a single observation; this
 // lets us easily re-use it when sampling from the replay buffer.
 void Trainer::trainOnEntry(const TelemetryEntry& entry) {
-    // Reward signal: generation count (higher = kernel survived longer = better)
+    // Reward: generation count (higher = better kernel)
     float reward = static_cast<float>(entry.generation);
     if (reward > m_maxReward) m_maxReward = reward;
-    float normReward = m_maxReward > 0.0f ? reward / m_maxReward : 0.0f;
+    // Normalise to [0,1]; use smoothed max to avoid divide-by-zero
+    float normReward = reward / (m_maxReward + 1.0f);
+
+    // Adaptive learning rate: decay as we accumulate observations
+    // Higher initial LR for fresh starts, lower as buffer fills
+    const float baseLr = kLearningRate;
+    float lrDecay = 1.0f / (1.0f + 0.001f * static_cast<float>(m_observations));
+    float lr = baseLr * std::max(0.1f, lrDecay);  // never drop below 10% of base
 
     float lastPrediction = 0.0f;
-    const float lr = 0.005f;
-    if (m_lastUsedSequence) {
-        auto seq = Feature::extractSequence(entry);
-        m_policy.resetState();
-        for (auto op : seq) {
-            std::vector<float> features(kFeatSize, 0.0f);
-            if (op < kFeatSize) features[op] = 1.0f;
 
-            std::vector<std::vector<float>> acts;
-            m_policy.forwardActivations(features, acts);
-            float prediction = acts.back().empty() ? 0.0f : acts.back()[0];
-            float diff = prediction - normReward;
-            m_lastLoss = diff * diff;
-            m_avgLoss = m_avgLoss * 0.9f + m_lastLoss * 0.1f;
-            lastPrediction = prediction;
-
-            // only update non-LSTM layers for simplicity
-            for (int l = 0; l < m_policy.layerCount(); ++l) {
-                if (m_policy.layerType(l) == Policy::LayerType::LSTM) continue;
-                const int inl  = m_policy.layerInSize(l);
-                const int outl = m_policy.layerOutSize(l);
-                const auto& input_act = acts[l];
-                auto w = m_policy.layerWeights(l);
-                for (int o = 0; o < outl; ++o)
-                    for (int i = 0; i < inl; ++i)
-                        w[o * inl + i] -= lr * diff * input_act[i];
-                m_policy.setLayerWeights(l, w);
-            }
-        }
-    } else {
-        auto features = Feature::extract(entry);
-
-        std::vector<std::vector<float>> acts;
-        m_policy.forwardActivations(features, acts);
+    // ── Helper: apply one SGD step with gradient clipping + weight decay ─────
+    auto applyUpdate = [&](std::vector<std::vector<float>>& acts) {
         float prediction = acts.back().empty() ? 0.0f : acts.back()[0];
         float diff = prediction - normReward;
+
+        // MSE loss
         m_lastLoss = diff * diff;
-        m_avgLoss = m_avgLoss * 0.9f + m_lastLoss * 0.1f;
+        // EMA smoothing (α=0.1 keeps history, 0.9 forgets slowly)
+        m_avgLoss = m_avgLoss * kEmaDecay + m_lastLoss * (1.0f - kEmaDecay);
         lastPrediction = prediction;
 
         for (int l = 0; l < m_policy.layerCount(); ++l) {
@@ -106,16 +85,46 @@ void Trainer::trainOnEntry(const TelemetryEntry& entry) {
             const int outl = m_policy.layerOutSize(l);
             const auto& input_act = acts[l];
             auto w = m_policy.layerWeights(l);
-            for (int o = 0; o < outl; ++o)
-                for (int i = 0; i < inl; ++i)
-                    w[o * inl + i] -= lr * diff * input_act[i];
+            auto b = m_policy.layerBiases(l);
+
+            for (int o = 0; o < outl; ++o) {
+                // Gradient clipping: |grad| <= kGradClip
+                float biasGrad = lr * diff;
+                biasGrad = std::max(-kGradClip, std::min(kGradClip, biasGrad));
+                b[o] -= biasGrad;
+
+                for (int i = 0; i < inl; ++i) {
+                    float grad = lr * diff * input_act[i];
+                    grad = std::max(-kGradClip, std::min(kGradClip, grad));
+                    w[o * inl + i] -= grad;
+                    // L2 weight decay (keeps weights from exploding)
+                    w[o * inl + i] *= (1.0f - kWeightDecay);
+                }
+            }
             m_policy.setLayerWeights(l, w);
+            m_policy.setLayerBiases(l, b);
         }
+    };
+
+    if (m_lastUsedSequence) {
+        auto seq = Feature::extractSequence(entry);
+        m_policy.resetState();
+        for (auto op : seq) {
+            std::vector<float> features(kFeatSize, 0.0f);
+            if (op < (uint8_t)kFeatSize) features[op] = 1.0f;
+            std::vector<std::vector<float>> acts;
+            m_policy.forwardActivations(features, acts);
+            applyUpdate(acts);
+        }
+    } else {
+        auto features = Feature::extract(entry);
+        std::vector<std::vector<float>> acts;
+        m_policy.forwardActivations(features, acts);
+        applyUpdate(acts);
     }
 
-    // record point for GUI charts
-    pushHistory(m_lossHistory, m_avgLoss);
-    pushHistory(m_predHistory, lastPrediction);
+    pushHistory(m_lossHistory,  m_avgLoss);
+    pushHistory(m_predHistory,  lastPrediction);
     pushHistory(m_rewardHistory, normReward);
 }
 
