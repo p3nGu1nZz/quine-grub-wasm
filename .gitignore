@@ -48,7 +48,7 @@ CTestTestfile.cmake
 _deps/
 
 # External dependencies (downloaded by scripts/setup.sh – not committed)
-/external/*
+external/*
 
 # Exported telemetry files
 quine_telemetry_*.txt

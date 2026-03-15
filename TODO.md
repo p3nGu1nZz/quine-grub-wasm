@@ -42,3 +42,12 @@ Tracks remaining work. Completed items are kept for reference.
 - [ ] Experience inheritance — propagate weight snapshot from parent to child kernel via `env.spawn`
 - [ ] Performance optimisations for the GUI heatmap and training timeline
 
+### New experimental tasks (self-evolving kernels)
+
+- [ ] Add persistent kernel state store (per-kernel state blob passed across generations; stored in bin/seq/<runid>/state_<n>.dat)
+- [ ] Add candidate evaluation harness (small supervised/interactive tasks + scalar fitness measurement)
+- [ ] Create curriculum of tasks (toy boolean → sequence prediction → tiny image patches)
+- [ ] Implement experience inheritance and state merge policies in evolveBinary
+- [ ] Experiment: optional host primitives (dot-product, conv helper) behind a feature flag
+- [ ] Experiment harness & telemetry: reproducible seeds, metrics (opcode histograms, float-op counts, memory hotspots)
+
